@@ -51,130 +51,186 @@ def DNN(x, h1_w, h1_b, h2_w, h2_b, o_w, o_b):
                 pass
         return arr
 
+    z1 = np.matmul(x, h1_w) + h1_b
+    z1 = np.array(z1.reshape(z1.shape[0] * z1.shape[1]))
+    z1 = Dnn_Relu(z1)
+    z2 = np.matmul(z1, h2_w) + h2_b
+    z2 = np.array(z2.reshape(z2.shape[0] * z2.shape[1]))
+    z2 = Dnn_Relu(z2)
+    z = np.matmul(z2, o_w) + o_b
+    z = np.array(z.reshape(z.shape[0] * z.shape[1]))
+    outp = np.zeros(len(z))
+    outp[np.argmax(z)] = 1
 
-try:
-    ser = serial.Serial(port, baudrate, timeout=0.5)
-    print('serial connect success')
-    print(ser)
+    return outp
 
-    ser.write(b'\x80\x73\x73\x8f')  # monitor에 's' 보내기
 
-    R = ''
+ser = serial.Serial(port, baudrate, timeout=0.5)
+print('serial connect success')
+print(ser)
 
-    class DataPreprocessor(QThread):
-        def __init__(self):
-            super().__init__()
-            self.running = True
+ser.write(b'\x80\x73\x73\x8f')  # monitor에 's' 보내기
 
-        def run(self):
-            global R, ibp_val, diff_ibp
-            while self.running:
+R = ''
+diff_ibp = ''
+ibp_val = ''
 
-                if ser.readable():
-                    a = ser.readline()
 
-                    R += a.hex()
+class DataPreprocessor(QThread):
+    def __init__(self, parent):
+        super().__init__()
+        self.running = True
 
-                    for i in range(0, len(R), 2):
-                        if R[i:i + 2] == '80':
-                            j_ref = 0
-                            for j in range(i + 2, len(R), 2):
-                                if R[j:j + 2] == '8f':
+        self.parent = parent
+        # self.ibp_wave_arr = np.array([])
+        # self.serial_loop_n = 0
 
-                                    # spo_h = R[i + 6:i + 8]
-                                    # spo_l = R[i + 8:i + 10]
-                                    #
-                                    # spo_val = (int(spo_h, 16) & int('01111111', 2)) * (2 ** 7) + \
-                                    #           (int(spo_l, 16) & int('01111111', 2)) - 1000
+    def run(self):
+        global R, ibp_val, diff_ibp
 
-                                    ibp_h = R[i + 10:i + 12]
-                                    ibp_l = R[i + 12:i + 14]
+        while self.running:
 
-                                    ibp_val = (int(ibp_h, 16) & int('01111111', 2)) * (2 ** 7) + \
-                                              (int(ibp_l, 16) & int('01111111', 2)) - 512
+            if ser.readable():
+                a = ser.readline()
 
-                                    # print('ibp_val:', ibp_val)
+                R += a.hex()
 
-                                    if ibp_val > 0:
-                                        diff_ibp = np.diff(ibp_val)
+                for i in range(0, len(R), 2):
+                    if R[i:i + 2] == '80':
+                        j_ref = 0
+                        for j in range(i + 2, len(R), 2):
+                            if R[j:j + 2] == '8f':
 
-                                    print('diff_data:', diff_ibp)
+                                # spo_h = R[i + 6:i + 8]
+                                # spo_l = R[i + 8:i + 10]
+                                #
+                                # spo_val = (int(spo_h, 16) & int('01111111', 2)) * (2 ** 7) + \
+                                #           (int(spo_l, 16) & int('01111111', 2)) - 1000
 
-                                    # # diff 필요한 범위만 가져온 뒤 표준화
-                                    # diff_inp = ibp_val[i:i + 125]
-                                    # save_diff_val = np.array(diff_inp)
-                                    # diff_inp_min = np.min(diff_inp)
-                                    # diff_inp_max = np.max(diff_inp)
-                                    # diff_inp = (diff_inp - diff_inp_min) / (diff_inp_max - diff_inp_min)
-                                    #
-                                    # # DNN 적용
-                                    # outp_h = DNN(ibp_val, w1, b1, w2, b2, w3, b3)
-                                    # outp_e = DNN(ibp_val, w4, b4, w5, b5, w6, b6)
-                                    #
-                                    # # DNN 출력값 중 마지막 값(파형 없음을 나타내는) 제거
-                                    # outp_h = np.array(outp_h[0:-1])
-                                    # outp_e = np.array(outp_e[0:-1])
-                                    #
-                                    # # 출력값 누적
-                                    # if i == 0:
-                                    #     save_diff = np.array(save_diff_val)
-                                    #
-                                    #     save_outp_h = np.hstack((np.zeros(65), outp_h, np.zeros(30)))
-                                    #     save_outp_e = np.hstack((np.zeros(65), outp_e, np.zeros(30)))
-                                    # else:
-                                    #     save_diff = np.append(save_diff, save_diff_val[-1])
-                                    #
-                                    #     save_outp_h = np.append(save_outp_h, 0)
-                                    #     save_outp_h[-60:-30] = save_outp_h[-60:-30] + outp_h
-                                    #
-                                    #     save_outp_e = np.append(save_outp_e, 0)
-                                    #     save_outp_e[-60:-30] = save_outp_e[-60:-30] + outp_e
+                                ibp_h = R[i + 10:i + 12]
+                                ibp_l = R[i + 12:i + 14]
 
-                                    j_ref = 1
-                                    break
+                                ibp_val = (int(ibp_h, 16) & int('01111111', 2)) * (2 ** 7) + \
+                                          (int(ibp_l, 16) & int('01111111', 2)) - 512
 
-                            if j_ref == 0:
-                                R = R[i::]
+                                # print('ibp_val:', ibp_val)
+
+                                self.parent.ibp_wave_arr = np.append(self.parent.ibp_wave_arr, ibp_val)
+                                if len(self.parent.ibp_wave_arr) > 3000:
+                                    self.parent.ibp_wave_arr = np.array(self.parent.ibp_wave_arr[1::])
+                                self.parent.serial_loop_n += 1
+
+                                if ibp_val > 0:
+                                    diff_ibp = np.diff(ibp_val)
+
+                                # print('diff_data:', diff_ibp)
+
+                                j_ref = 1
                                 break
 
-        def resume(self):
-            self.running = True
+                        if j_ref == 0:
+                            R = R[i::]
+                            break
 
-        def pause(self):
-            self.running = False
+    def resume(self):
+        self.running = True
 
-
-    class MyWindow(QMainWindow):
-        def __init__(self):
-            super().__init__()
-
-            self.controller = DataPreprocessor()
-            self.controller.start()
-
-            # window size
-            self.resize(300, 100)
-
-            btn1 = QPushButton("resume", self)
-            btn1.move(10, 10)
-            btn2 = QPushButton("pause", self)
-            btn2.move(10, 50)
-
-            # 시그널-슬롯 연결하기
-            btn1.clicked.connect(self.resume)
-            btn2.clicked.connect(self.pause)
-
-        def resume(self):
-            self.controller.resume()
-            self.controller.start()
-
-        def pause(self):
-            self.controller.pause()
+    def pause(self):
+        self.running = False
 
 
-    app = QApplication(sys.argv)
-    mywindow = MyWindow()
-    mywindow.show()
-    app.exec_()
+class ApplyDNN(QThread):
+    def __init__(self, parent):
+        super().__init__()
+        self.parent = parent
 
-except serial.serialutil.SerialException:
-    print('serial connect error')
+    def run(self):
+        while 1:
+            serial_loop_n = self.parent.serial_loop_n
+            ibp_wave_arr = self.parent.ibp_wave_arr
+
+            if self.parent.dnn_loop_n >= serial_loop_n:
+                time.sleep(0.1)
+                continue
+
+            index = -1 * (serial_loop_n - self.parent.dnn_loop_n)
+
+            ibp_tmp = np.array(ibp_wave_arr[index - 125: index])
+
+            # # diff 필요한 범위만 가져온 뒤 표준화
+            diff_inp = ibp_val[i:i + 125]
+            save_diff_val = np.array(diff_inp)
+            diff_inp_min = np.min(diff_inp)
+            diff_inp_max = np.max(diff_inp)
+            diff_inp = (diff_inp - diff_inp_min) / (diff_inp_max - diff_inp_min)
+
+            # DNN 적용
+            outp_h = DNN(ibp_val, w1, b1, w2, b2, w3, b3)
+            outp_e = DNN(ibp_val, w4, b4, w5, b5, w6, b6)
+
+            # DNN 출력값 중 마지막 값(파형 없음을 나타내는) 제거
+            outp_h = np.array(outp_h[0:-1])
+            outp_e = np.array(outp_e[0:-1])
+
+            # 출력값 누적
+            if i == 0:
+                save_diff = np.array(save_diff_val)
+
+                save_outp_h = np.hstack((np.zeros(65), outp_h, np.zeros(30)))
+                save_outp_e = np.hstack((np.zeros(65), outp_e, np.zeros(30)))
+            else:
+                save_diff = np.append(save_diff, save_diff_val[-1])
+
+                save_outp_h = np.append(save_outp_h, 0)
+                save_outp_h[-60:-30] = save_outp_h[-60:-30] + outp_h
+
+                save_outp_e = np.append(save_outp_e, 0)
+                save_outp_e[-60:-30] = save_outp_e[-60:-30] + outp_e
+
+            self.parent.dnn_loop_n += 1
+
+    def resume(self):
+        pass
+
+    def pause(self):
+        pass
+
+
+class MyWindow(QMainWindow):
+    def __init__(self):
+        super().__init__()
+
+        self.ibp_wave_arr = np.array([])
+        self.serial_loop_n = 0
+        self.dnn_loop_n = 0
+
+        self.controller = DataPreprocessor(self)
+        self.controller.start()
+
+        self.applydnn = ApplyDNN(self)
+        self.applydnn.start()
+
+        # window size
+        self.resize(300, 100)
+
+        btn1 = QPushButton("resume", self)
+        btn1.move(10, 10)
+        btn2 = QPushButton("pause", self)
+        btn2.move(10, 50)
+
+        # 시그널-슬롯 연결하기
+        btn1.clicked.connect(self.resume)
+        btn2.clicked.connect(self.pause)
+
+    def resume(self):
+        self.controller.resume()
+        self.controller.start()
+
+    def pause(self):
+        self.controller.pause()
+
+
+app = QApplication(sys.argv)
+mywindow = MyWindow()
+mywindow.show()
+app.exec_()
