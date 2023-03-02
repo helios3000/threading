@@ -129,10 +129,10 @@ class DataPreprocessor(QThread):
                                 else:
                                     print('Error: ibp_val is None')
 
-                                    self.parent.ibp_wave_arr = np.append(self.parent.ibp_wave_arr, ibp_diff)
-                                    if len(self.parent.ibp_wave_arr) > 3000:
-                                        self.parent.ibp_wave_arr = np.array(self.parent.ibp_wave_arr[1::])
-                                    self.parent.serial_loop_n += 1
+                                self.parent.ibp_wave_arr = np.append(self.parent.ibp_wave_arr, ibp_diff)
+                                if len(self.parent.ibp_wave_arr) > 3000:
+                                    self.parent.ibp_wave_arr = np.array(self.parent.ibp_wave_arr[1::])
+                                self.parent.serial_loop_n += 1
 
                                 j_ref = 1
                                 break
@@ -174,7 +174,7 @@ class ApplyDNN(QThread):
 
             ibp_tmp = np.array(ibp_wave_arr[index - 125: index])
 
-            print(ibp_tmp)
+            inp = np.hstack((ibp_tmp, 0, 0))
 
             # # diff 필요한 범위만 가져온 뒤 표준화
             # diff_inp = ibp_val[i:i + 125]
@@ -184,24 +184,25 @@ class ApplyDNN(QThread):
             # diff_inp = (diff_inp - diff_inp_min) / (diff_inp_max - diff_inp_min)
 
             # DNN 적용
-            outp_h = DNN(ibp_tmp, w1, b1, w2, b2, w3, b3)
-            outp_e = DNN(ibp_tmp, w4, b4, w5, b5, w6, b6)
+            # outp_h = DNN(inp, w1, b1, w2, b2, w3, b3)
+            # outp_e = DNN(inp, w4, b4, w5, b5, w6, b6)
 
             # DNN 출력값 중 마지막 값(파형 없음을 나타내는) 제거
-            outp_h = np.array(outp_h[0:-1])
-            outp_e = np.array(outp_e[0:-1])
+            # outp_h = np.array(outp_h[0:-1])
+            # outp_e = np.array(outp_e[0:-1])
 
             # 출력값 누적
-            if i == 0:
-                save_outp_h = np.hstack((np.zeros(65), outp_h, np.zeros(30)))
-                save_outp_e = np.hstack((np.zeros(65), outp_e, np.zeros(30)))
-            else:
-                save_outp_h = np.append(save_outp_h, 0)
-                save_outp_h[-60:-30] = save_outp_h[-60:-30] + outp_h
+            # if i == 0:
+            #     save_outp_h = np.hstack((np.zeros(65), outp_h, np.zeros(30)))
+            #     save_outp_e = np.hstack((np.zeros(65), outp_e, np.zeros(30)))
+            # else:
+            #     save_outp_h = np.append(save_outp_h, 0)
+            #     save_outp_h[-60:-30] = save_outp_h[-60:-30] + outp_h
+            #
+            #     save_outp_e = np.append(save_outp_e, 0)
+            #     save_outp_e[-60:-30] = save_outp_e[-60:-30] + outp_e
 
-                save_outp_e = np.append(save_outp_e, 0)
-                save_outp_e[-60:-30] = save_outp_e[-60:-30] + outp_e
-
+            print(inp)
             self.parent.dnn_loop_n += 1
 
             # print(save_outp_h, save_outp_e)
