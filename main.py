@@ -65,6 +65,13 @@ def DNN(x, h1_w, h1_b, h2_w, h2_b, o_w, o_b):
     return outp
 
 
+def differentiate(current_val, previous_val):
+    if previous_val is None:
+        return 0.0
+    else:
+        return (current_val - previous_val) * 0.004
+
+
 ser = serial.Serial(port, baudrate, timeout=0.5)
 print('serial connect success')
 print(ser)
@@ -72,8 +79,9 @@ print(ser)
 ser.write(b'\x80\x73\x73\x8f')  # monitor에 's' 보내기
 
 R = ''
-diff_ibp = ''
+ibp_diff = ''
 ibp_val = ''
+last_ibp_val = 0
 
 
 class DataPreprocessor(QThread):
@@ -86,7 +94,7 @@ class DataPreprocessor(QThread):
         # self.serial_loop_n = 0
 
     def run(self):
-        global R, ibp_val, diff_ibp
+        global R, ibp_val, last_ibp_val, ibp_diff
 
         while self.running:
 
@@ -97,6 +105,7 @@ class DataPreprocessor(QThread):
 
                 for i in range(0, len(R), 2):
                     if R[i:i + 2] == '80':
+
                         j_ref = 0
                         for j in range(i + 2, len(R), 2):
                             if R[j:j + 2] == '8f':
@@ -113,17 +122,17 @@ class DataPreprocessor(QThread):
                                 ibp_val = (int(ibp_h, 16) & int('01111111', 2)) * (2 ** 7) + \
                                           (int(ibp_l, 16) & int('01111111', 2)) - 512
 
-                                # print('ibp_val:', ibp_val)
+                                if ibp_val is not None:
+                                    ibp_diff = differentiate(ibp_val, last_ibp_val)
+                                    # print('Differentiated IBP value:', ibp_diff)
+                                    last_ibp_val = ibp_val
+                                else:
+                                    print('Error: ibp_val is None')
 
-                                self.parent.ibp_wave_arr = np.append(self.parent.ibp_wave_arr, ibp_val)
-                                if len(self.parent.ibp_wave_arr) > 3000:
-                                    self.parent.ibp_wave_arr = np.array(self.parent.ibp_wave_arr[1::])
-                                self.parent.serial_loop_n += 1
-
-                                if ibp_val > 0:
-                                    diff_ibp = np.diff(ibp_val)
-
-                                # print('diff_data:', diff_ibp)
+                                    self.parent.ibp_wave_arr = np.append(self.parent.ibp_wave_arr, ibp_diff)
+                                    if len(self.parent.ibp_wave_arr) > 3000:
+                                        self.parent.ibp_wave_arr = np.array(self.parent.ibp_wave_arr[1::])
+                                    self.parent.serial_loop_n += 1
 
                                 j_ref = 1
                                 break
@@ -139,12 +148,20 @@ class DataPreprocessor(QThread):
         self.running = False
 
 
+save_outp_h = ''
+save_outp_e = ''
+
+
 class ApplyDNN(QThread):
     def __init__(self, parent):
         super().__init__()
         self.parent = parent
 
     def run(self):
+
+        global save_outp_h, save_outp_e
+        i = 0
+
         while 1:
             serial_loop_n = self.parent.serial_loop_n
             ibp_wave_arr = self.parent.ibp_wave_arr
@@ -157,16 +174,18 @@ class ApplyDNN(QThread):
 
             ibp_tmp = np.array(ibp_wave_arr[index - 125: index])
 
+            print(ibp_tmp)
+
             # # diff 필요한 범위만 가져온 뒤 표준화
-            diff_inp = ibp_val[i:i + 125]
-            save_diff_val = np.array(diff_inp)
-            diff_inp_min = np.min(diff_inp)
-            diff_inp_max = np.max(diff_inp)
-            diff_inp = (diff_inp - diff_inp_min) / (diff_inp_max - diff_inp_min)
+            # diff_inp = ibp_val[i:i + 125]
+            # save_diff_val = np.array(diff_inp)
+            # diff_inp_min = np.min(diff_inp)
+            # diff_inp_max = np.max(diff_inp)
+            # diff_inp = (diff_inp - diff_inp_min) / (diff_inp_max - diff_inp_min)
 
             # DNN 적용
-            outp_h = DNN(ibp_val, w1, b1, w2, b2, w3, b3)
-            outp_e = DNN(ibp_val, w4, b4, w5, b5, w6, b6)
+            outp_h = DNN(ibp_tmp, w1, b1, w2, b2, w3, b3)
+            outp_e = DNN(ibp_tmp, w4, b4, w5, b5, w6, b6)
 
             # DNN 출력값 중 마지막 값(파형 없음을 나타내는) 제거
             outp_h = np.array(outp_h[0:-1])
@@ -174,13 +193,9 @@ class ApplyDNN(QThread):
 
             # 출력값 누적
             if i == 0:
-                save_diff = np.array(save_diff_val)
-
                 save_outp_h = np.hstack((np.zeros(65), outp_h, np.zeros(30)))
                 save_outp_e = np.hstack((np.zeros(65), outp_e, np.zeros(30)))
             else:
-                save_diff = np.append(save_diff, save_diff_val[-1])
-
                 save_outp_h = np.append(save_outp_h, 0)
                 save_outp_h[-60:-30] = save_outp_h[-60:-30] + outp_h
 
@@ -188,6 +203,8 @@ class ApplyDNN(QThread):
                 save_outp_e[-60:-30] = save_outp_e[-60:-30] + outp_e
 
             self.parent.dnn_loop_n += 1
+
+            # print(save_outp_h, save_outp_e)
 
     def resume(self):
         pass
