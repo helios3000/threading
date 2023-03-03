@@ -119,8 +119,16 @@ class DataPreprocessor(QThread):
                                 ibp_h = R[i + 10:i + 12]
                                 ibp_l = R[i + 12:i + 14]
 
+                                sac_sig = R[i + 22:i + 24]
+
                                 ibp_val = (int(ibp_h, 16) & int('01111111', 2)) * (2 ** 7) + \
                                           (int(ibp_l, 16) & int('01111111', 2)) - 512
+
+                                aaa = format(int(sac_sig, 16), 'b').zfill(8)
+                                pump1 = aaa[7]
+                                pump2 = aaa[6]
+
+                                print(pump1, pump2)
 
                                 if ibp_val is not None:
                                     ibp_diff = differentiate(ibp_val, last_ibp_val)
@@ -202,7 +210,7 @@ class ApplyDNN(QThread):
             #     save_outp_e = np.append(save_outp_e, 0)
             #     save_outp_e[-60:-30] = save_outp_e[-60:-30] + outp_e
 
-            print(inp)
+            # print(inp)
             self.parent.dnn_loop_n += 1
 
             # print(save_outp_h, save_outp_e)
