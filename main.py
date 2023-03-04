@@ -78,7 +78,6 @@ print(ser)
 
 ser.write(b'\x80\x73\x73\x8f')  # monitor에 's' 보내기
 
-
 R = ''
 ibp_diff = ''
 ibp_val = ''
@@ -132,9 +131,11 @@ class DataPreprocessor(QThread):
 
                                 sac_sig = R[i + 22:i + 24]
 
-                                aaa = format(int(sac_sig, 16), 'b').zfill(8)
-                                pump1 = aaa[7]
-                                pump2 = aaa[6]
+                                pump_sig = format(int(sac_sig, 16), 'b').zfill(8)
+                                pump1 = pump_sig[7]
+                                pump2 = pump_sig[6]
+
+                                # print('pump1, pump2: ', pump1, pump2)
 
                                 self.parent.ibp_wave_arr = np.append(self.parent.ibp_wave_arr, ibp_diff)
                                 if len(self.parent.ibp_wave_arr) > 3000:
@@ -188,84 +189,100 @@ class ApplyDNN(QThread):
                 time.sleep(0.1)
                 continue
 
-            index = -1 * (serial_loop_n - self.parent.dnn_loop_n)
+            if serial_loop_n % 4 == 0:
 
-            ibp_tmp = np.array(ibp_wave_arr[index - 125: index])
-            pump1_tmp = np.array(pump1_arr[index - 125: index])
-            pump2_tmp = np.array(pump2_arr[index - 125: index])
+                index = -1 * (serial_loop_n - self.parent.dnn_loop_n)
 
-            # print(ibp_tmp)
+                ibp_tmp = np.array(ibp_wave_arr[index - 125 * 4: index])
+                # pump1_tmp = np.array(pump1_arr[index - 125: index])
+                # pump2_tmp = np.array(pump2_arr[index - 125: index])
+                pump1_tmp = np.array(pump1_arr[index - 90 * 4: index])
+                pump2_tmp = np.array(pump2_arr[index - 90 * 4: index])
 
-            # diff, sac1, sac2 각각 16분주 중 (div_i) 번째 분주 값 가져오기
-            for div_i in range(0, 1):
-                diff = NDivision(ibp_tmp, 4, div_i)
-                sac1 = NDivision(pump1_tmp, 4, div_i)
-                sac2 = NDivision(pump2_tmp, 4, div_i)
+                # print(ibp_tmp)
 
-                save_diff = np.array([])
-                save_sac1 = np.array([])
-                save_sac2 = np.array([])
-                save_outp_h = np.array([])
-                save_outp_e = np.array([])
+                # diff, sac1, sac2 각각 16분주 중 (div_i) 번째 분주 값 가져오기
+                for div_i in range(0, 1):
+                    diff = NDivision(ibp_tmp, 4, div_i)
+                    sac1 = NDivision(pump1_tmp, 4, div_i)
+                    sac2 = NDivision(pump2_tmp, 4, div_i)
 
-                # diff 필요한 범위만 가져온 뒤 표준화
-                diff_inp = diff[serial_loop_n:serial_loop_n + 125]
-                save_diff_val = np.array(diff_inp)
-                diff_inp_min = np.min(diff_inp)
-                diff_inp_max = np.max(diff_inp)
-                diff_inp = (diff_inp - diff_inp_min) / (diff_inp_max - diff_inp_min)
+                    save_diff = np.array([])
+                    save_sac1 = np.array([])
+                    save_sac2 = np.array([])
+                    save_outp_h = np.array([])
+                    save_outp_e = np.array([])
 
-                # sac1 필요한 범위만 가져오기
-                sac1_inp = sac1[serial_loop_n + 35:serial_loop_n + 125]
-                save_sac1_val = np.array(sac1_inp)
-                for sac_i in range(0, len(sac1_inp)):
-                    if sac1_inp[sac_i] >= 0.5:
-                        sac1_inp[sac_i] = 1
+                    # diff 필요한 범위만 가져온 뒤 표준화
+                    # diff_inp = diff[serial_loop_n - 125:serial_loop_n]
+                    diff_inp = np.array(diff)
+                    # save_diff_val = np.array(diff_inp)
+                    diff_inp_min = np.min(diff_inp)
+                    diff_inp_max = np.max(diff_inp)
+
+                    # diff_inp = (diff_inp - diff_inp_min) / (diff_inp_max - diff_inp_min)
+                    if diff_inp_max == diff_inp_min:
+                        diff_inp = np.zeros_like(diff_inp)
                     else:
-                        sac1_inp[sac_i] = 0
+                        diff_inp = (diff_inp - diff_inp_min) / (diff_inp_max - diff_inp_min)
 
-                # sac2 필요한 범위만 가져오기
-                sac2_inp = sac2[serial_loop_n + 35:serial_loop_n + 125]
-                save_sac2_val = np.array(sac2_inp)
-                for sac_i in range(0, len(sac2_inp)):
-                    if sac2_inp[sac_i] >= 0.5:
-                        sac2_inp[sac_i] = 1
+                    # sac1 필요한 범위만 가져오기
+                    # sac1_inp = sac1[serial_loop_n - 90:serial_loop_n]
+                    sac1_inp = np.array(sac1)
+                    # save_sac1_val = np.array(sac1_inp)
+                    # for sac_i in range(0, len(sac1_inp)):
+                    #     if sac1_inp[sac_i] >= 0.5:
+                    #         sac1_inp[sac_i] = 1
+                    #     else:
+                    #         sac1_inp[sac_i] = 0
+
+                    # sac2 필요한 범위만 가져오기
+                    # sac2_inp = sac2[serial_loop_n - 90:serial_loop_n]
+                    sac2_inp = np.array(sac2)
+                    # save_sac2_val = np.array(sac2_inp)
+                    # for sac_i in range(0, len(sac2_inp)):
+                    #     if sac2_inp[sac_i] >= 0.5:
+                    #         sac2_inp[sac_i] = 1
+                    #     else:
+                    #         sac2_inp[sac_i] = 0
+
+                    inp = np.hstack((diff_inp, sac1_inp, sac2_inp))
+
+                    # DNN 적용
+                    outp_h = DNN(inp, w1, b1, w2, b2, w3, b3)
+                    outp_e = DNN(inp, w4, b4, w5, b5, w6, b6)
+
+                    # print(outp_h, outp_e)
+
+                    # DNN 출력값 중 마지막 값(파형 없음을 나타내는) 제거
+                    outp_h = np.array(outp_h[0:-1])
+                    outp_e = np.array(outp_e[0:-1])
+
+                    # 출력값 누적
+                    if i == 0:
+                        save_diff = np.array(diff)
+                        save_sac1 = np.hstack((np.zeros(35), save_sac1))
+                        save_sac2 = np.hstack((np.zeros(35), save_sac2))
+                        save_outp_h = np.hstack((np.zeros(65), outp_h, np.zeros(30)))
+                        save_outp_e = np.hstack((np.zeros(65), outp_e, np.zeros(30)))
                     else:
-                        sac2_inp[sac_i] = 0
+                        save_diff = np.append(save_diff, diff[-1])
 
-                inp = np.hstack((diff_inp, sac1_inp, sac2_inp))
+                        save_sac1 = np.append(save_sac1, save_sac1[-1])
+                        save_sac2 = np.append(save_sac2, save_sac2[-1])
 
-                # DNN 적용
-                outp_h = DNN(inp, w1, b1, w2, b2, w3, b3)
-                outp_e = DNN(inp, w4, b4, w5, b5, w6, b6)
+                        save_outp_h = np.append(save_outp_h, 0)
+                        save_outp_h[-60:-30] = save_outp_h[-60:-30] + outp_h
 
-                # print(outp_h, outp_e)
+                        save_outp_e = np.append(save_outp_e, 0)
+                        save_outp_e[-60:-30] = save_outp_e[-60:-30] + outp_e
 
-                # DNN 출력값 중 마지막 값(파형 없음을 나타내는) 제거
-                outp_h = np.array(outp_h[0:-1])
-                outp_e = np.array(outp_e[0:-1])
+                    self.parent.dnn_loop_n += 1
 
-                # 출력값 누적
-                if i == 0:
-                    save_diff = np.array(save_diff_val)
-                    save_sac1 = np.hstack((np.zeros(35), save_sac1_val))
-                    save_sac2 = np.hstack((np.zeros(35), save_sac2_val))
-                    save_outp_h = np.hstack((np.zeros(65), outp_h, np.zeros(30)))
-                    save_outp_e = np.hstack((np.zeros(65), outp_e, np.zeros(30)))
-                else:
-                    save_diff = np.append(save_diff, save_diff_val[-1])
+                    a1 = save_outp_h[-60]
+                    a2 = save_outp_e[-60]
 
-                    save_sac1 = np.append(save_sac1, save_sac1_val[-1])
-                    save_sac2 = np.append(save_sac2, save_sac2_val[-1])
-
-                    save_outp_h = np.append(save_outp_h, 0)
-                    save_outp_h[-60:-30] = save_outp_h[-60:-30] + outp_h
-
-                    save_outp_e = np.append(save_outp_e, 0)
-                    save_outp_e[-60:-30] = save_outp_e[-60:-30] + outp_e
-                self.parent.dnn_loop_n += 1
-
-                print(save_outp_h, save_outp_e)
+                    print(a1, a2)
 
     def resume(self):
         pass
