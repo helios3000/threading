@@ -90,8 +90,6 @@ class DataPreprocessor(QThread):
         self.running = True
 
         self.parent = parent
-        # self.ibp_wave_arr = np.array([])
-        # self.serial_loop_n = 0
 
     def run(self):
         global R, ibp_val, last_ibp_val, ibp_diff
@@ -128,6 +126,8 @@ class DataPreprocessor(QThread):
                                     last_ibp_val = ibp_val
                                 else:
                                     print('Error: ibp_val is None')
+
+                                # print(ibp_diff)
 
                                 sac_sig = R[i + 22:i + 24]
 
@@ -172,6 +172,7 @@ save_outp_e = ''
 class ApplyDNN(QThread):
     def __init__(self, parent):
         super().__init__()
+        self.running = True
         self.parent = parent
 
     def run(self):
@@ -179,7 +180,7 @@ class ApplyDNN(QThread):
         global save_outp_h, save_outp_e
         i = 0
 
-        while 1:
+        while self.running:
             serial_loop_n = self.parent.serial_loop_n
             ibp_wave_arr = self.parent.ibp_wave_arr
             pump1_arr = self.parent.pump1_arr
@@ -260,16 +261,16 @@ class ApplyDNN(QThread):
 
                     # 출력값 누적
                     if i == 0:
-                        save_diff = np.array(diff)
-                        save_sac1 = np.hstack((np.zeros(35), save_sac1))
-                        save_sac2 = np.hstack((np.zeros(35), save_sac2))
+                        save_diff = np.array(diff_inp)
+                        save_sac1 = np.hstack((np.zeros(35), sac1_inp))
+                        save_sac2 = np.hstack((np.zeros(35), sac2_inp))
                         save_outp_h = np.hstack((np.zeros(65), outp_h, np.zeros(30)))
                         save_outp_e = np.hstack((np.zeros(65), outp_e, np.zeros(30)))
                     else:
-                        save_diff = np.append(save_diff, diff[-1])
+                        save_diff = np.append(save_diff, diff_inp[-1])
 
-                        save_sac1 = np.append(save_sac1, save_sac1[-1])
-                        save_sac2 = np.append(save_sac2, save_sac2[-1])
+                        save_sac1 = np.append(save_sac1, sac1_inp[-1])
+                        save_sac2 = np.append(save_sac2, sac2_inp[-1])
 
                         save_outp_h = np.append(save_outp_h, 0)
                         save_outp_h[-60:-30] = save_outp_h[-60:-30] + outp_h
@@ -282,7 +283,7 @@ class ApplyDNN(QThread):
                     a1 = save_outp_h[-60]
                     a2 = save_outp_e[-60]
 
-                    print(a1, a2)
+                    # print(a1, a2)
 
     def resume(self):
         pass
