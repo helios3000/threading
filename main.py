@@ -4,7 +4,6 @@ from math import factorial
 import time
 import serial
 import threading
-# from scipy.signal import savgol_filter
 
 port = 'COM8'
 baudrate = 115200
@@ -63,8 +62,8 @@ def DNN(x, h1_w, h1_b, h2_w, h2_b, o_w, o_b):
     return outp
 
 
-def moving_average(data):
-    filtered_data = (data[0]+data[-1]+data[-2]+data[-3]+data[-4])/5
+def moving_average(data, window_size=8):
+    filtered_data = np.sum(data[-window_size:]) / window_size
     return filtered_data
 
 
@@ -172,14 +171,14 @@ class DataPreprocessor(threading.Thread):
                                 # print(pump1, pump2)
 
                                 self.ibp_wave_arr = np.append(self.ibp_wave_arr, ibp_val)
-                                if len(self.ibp_wave_arr) > 10:
+                                if len(self.ibp_wave_arr) > 100:
                                     self.ibp_wave_arr = np.array(self.ibp_wave_arr[1::])
                                 # print("ibp: ", *self.ibp_wave_arr)
 
-                                if len(self.ibp_wave_arr) >= 5:
+                                if len(self.ibp_wave_arr) >= 100:
 
                                     self.ibp_filtered_arr = np.append(self.ibp_filtered_arr, moving_average(self.ibp_wave_arr))
-                                    if len(self.ibp_filtered_arr) > 10:
+                                    if len(self.ibp_filtered_arr) > 100:
                                         self.ibp_filtered_arr = np.array(self.ibp_filtered_arr[1::])
                                     # print("ibp_filtered: ", *self.ibp_filtered_arr)
 
@@ -190,8 +189,8 @@ class DataPreprocessor(threading.Thread):
 
                                     if len(self.ibp_filtered_arr) >= 2:
 
-                                        self.ibp_diff_tmp_arr = np.append(self.ibp_diff_tmp_arr, differentiate(self.ibp_filtered_arr[0], self.ibp_filtered_arr[-1]))
-                                        if len(self.ibp_diff_tmp_arr) > 10:
+                                        self.ibp_diff_tmp_arr = np.append(self.ibp_diff_tmp_arr, differentiate(self.ibp_filtered_arr[-1], self.ibp_filtered_arr[-2]))
+                                        if len(self.ibp_diff_tmp_arr) > 500:
                                             self.ibp_diff_tmp_arr = np.array(self.ibp_diff_tmp_arr[1::])
                                         # print("ibp_diff: ", *self.ibp_diff_arr)
 
@@ -228,9 +227,8 @@ class DataPreprocessor(threading.Thread):
                                             if len(self.pump2_arr) > 500:
                                                 self.pump2_arr = np.array(self.pump2_arr[1::])
                                             # print('pump2: ', *self.pump2_arr)
-                                            # print('')
                                             self.flow_arr = np.append(self.flow_arr, flow_val)
-                                            if len(self.flow_arr) > 1000:
+                                            if len(self.flow_arr) > 500:
                                                 self.flow_arr = np.array(self.flow_arr[1::])
 
                                             # print("flow: ", *self.flow_arr)
@@ -240,9 +238,9 @@ class DataPreprocessor(threading.Thread):
 
                                             if len(self.ibp_diff_arr) > 125:
 
-                                                self.event1.set()
-                                                self.event2.wait()
-                                                self.event2.clear()
+                                                self.event1.clear()
+                                                self.event2.set()
+                                                self.event1.wait()
 
                                 self.serial_loop_n += 1
 
@@ -254,8 +252,11 @@ class DataPreprocessor(threading.Thread):
                             break
 
 
-save_outp_h = ''
-save_outp_e = ''
+save_diff = np.array([])
+save_sac1 = np.array([])
+save_sac2 = np.array([])
+save_outp_h = np.array([])
+save_outp_e = np.array([])
 
 
 class ApplyDNN(threading.Thread):
@@ -273,14 +274,14 @@ class ApplyDNN(threading.Thread):
 
     def run(self):
 
-        global save_outp_h, save_outp_e
+        global save_diff, save_sac1, save_sac2, save_outp_h, save_outp_e
         i = 0
-
-        self.event1.wait()
 
         print("DNN apply start")
 
         while 1:
+
+            self.event2.wait()
 
             ibp_diff_arr = self.parent.ibp_diff_arr
             pump1_arr = self.parent.pump1_arr
@@ -301,7 +302,7 @@ class ApplyDNN(threading.Thread):
             if 1000 >= len(ibp_diff_arr) >= 125 and 1000 >= len(pump1_arr) >= 90 and 1000 >= len(pump2_arr) >= 90: 말고
                 if 1000 >= len(ibp_diff_arr) >= 125로 수정
             '''
-            if 500 >= len(ibp_diff_arr) >= 125:
+            if len(ibp_diff_arr) >= 125:
 
                 '''
                 kkk
@@ -329,12 +330,6 @@ class ApplyDNN(threading.Thread):
                 #     sac1 = NDivision(pump1_tmp, 4, div_i)
                 #     sac2 = NDivision(pump2_tmp, 4, div_i)
 
-                save_diff = np.array([])
-                save_sac1 = np.array([])
-                save_sac2 = np.array([])
-                save_outp_h = np.array([])
-                save_outp_e = np.array([])
-
                 # diff 필요한 범위만 가져온 뒤 표준화
                 # diff_inp = ibp_tmp[index - 125:index]
                 diff_inp = ibp_tmp
@@ -348,15 +343,19 @@ class ApplyDNN(threading.Thread):
                 # diff_inp_min = np.min(diff_inp)
                 # diff_inp_max = np.max(diff_inp)
 
-                diff_inp_min = np.min(diff_inp) if len(diff_inp) > 0 else 0
-                diff_inp_max = np.max(diff_inp) if len(diff_inp) > 0 else 0
+                diff_inp_min = np.min(diff_inp)
+                diff_inp_max = np.max(diff_inp)
 
                 '''
                 kkk
                 (diff_inp_max - diff_inp_min) = 0이 안되도록 조건문 추가
                 '''
+                diff_principle= diff_inp_max - diff_inp_min
 
-                diff_inp = (diff_inp - diff_inp_min) / (diff_inp_max - diff_inp_min)
+                if diff_principle == 0:
+                    diff_principle = 0.0001
+                else:
+                    diff_inp = (diff_inp - diff_inp_min) / (diff_inp_max - diff_inp_min)
 
                 # if diff_inp_max == diff_inp_min:
                 #     diff_inp = np.zeros_like(diff_inp)
@@ -377,27 +376,27 @@ class ApplyDNN(threading.Thread):
 
                 inp = np.hstack((diff_inp, sac1_inp, sac2_inp))
                 # inp = np.reshape(inp, (1, len(inp)))
-                print('input shape: ', inp.shape)
-                print('inp: ', *inp)
+                # print('input shape: ', inp.shape)
+                # print('inp: ', *inp)
                 '''
                 inp = np.reshape(inp, (1, len(inp))) 를 이 위치에 추가해보렴
                 '''
 
-                print('diff_inp: ', *diff_inp)
-                print('diff_inp: ', len(diff_inp))
-                print('sac1_inp: ', *sac1_inp)
-                print('sac1_inp: ', len(sac1_inp))
-                print('sac2_inp: ', *sac2_inp)
-                print('sac2_inp: ', len(sac2_inp))
+                # print('diff_inp: ', *diff_inp)
+                # print('diff_inp: ', len(diff_inp))
+                # print('sac1_inp: ', *sac1_inp)
+                # print('sac1_inp: ', len(sac1_inp))
+                # print('sac2_inp: ', *sac2_inp)
+                # print('sac2_inp: ', len(sac2_inp))
 
                 # DNN 적용
                 outp_h = DNN(inp, w1, b1, w2, b2, w3, b3)
                 outp_e = DNN(inp, w4, b4, w5, b5, w6, b6)
                 # outp_h = np.reshape(outp_h, (1, len(outp_h)))
                 # outp_e = np.reshape(outp_e, (1, len(outp_e)))
-                print('output shape: ', outp_h.shape, outp_e.shape)
-                print('output shape_h: ', *outp_h)
-                print('output shape_e: ', *outp_e)
+                # print('output shape: ', outp_h.shape, outp_e.shape)
+                # print('output shape_h: ', *outp_h)
+                # print('output shape_e: ', *outp_e)
 
                 # DNN 출력값 중 마지막 값(파형 없음을 나타내는) 제거
                 outp_h = np.array(outp_h[0:-1])
@@ -412,6 +411,7 @@ class ApplyDNN(threading.Thread):
                     save_sac2 = np.hstack((np.zeros(35), save_sac2_val))
 
                     save_outp_h = np.hstack((np.zeros(65), outp_h, np.zeros(30)))
+                    # print('save_outp_h_1', save_outp_h)
                     save_outp_e = np.hstack((np.zeros(65), outp_e, np.zeros(30)))
                 else:
                     save_diff = np.append(save_diff, save_diff_val[-1])
@@ -419,9 +419,10 @@ class ApplyDNN(threading.Thread):
                     save_sac2 = np.append(save_sac2, save_sac2_val[-1])
 
                     save_outp_h = np.append(save_outp_h, 0)
+                    # print('save_outp_h_2', save_outp_h)
                     save_outp_h[-60:-30] = save_outp_h[-60:-30] + outp_h
                     # save_outp_h[65:95] = save_outp_h[65:95] + outp_h
-
+                    # print('save_outp_h_3', save_outp_h)
                     save_outp_e = np.append(save_outp_e, 0)
                     save_outp_e[-60:-30] = save_outp_e[-60:-30] + outp_e
                     # save_outp_e[65:95] = save_outp_e[65:95] + outp_e
@@ -429,16 +430,15 @@ class ApplyDNN(threading.Thread):
                 a1 = save_outp_h[-60]
                 a2 = save_outp_e[-60]
                 print(a1, a2)
-                print('save_output shape: ', save_outp_h.shape, save_outp_e.shape)
-                print('save_output_h: ', *save_outp_h)
-                print('save_output_e: ', *save_outp_e)
+                # print('save_output shape: ', save_outp_h.shape, save_outp_e.shape)
+                # print('save_output_h: ', *save_outp_h)
+                # print('save_output_e: ', *save_outp_e)
                 print('')
 
                 self.dnn_loop_n += 1
 
-                self.event2.set()
-                self.event1.clear()
-
+                self.event1.set()
+                self.event2.clear()
             else:
                 pass
 
@@ -466,5 +466,3 @@ class MyProgram:
 
 my_program = MyProgram()
 my_program.run()
-# time.sleep(1)
-
