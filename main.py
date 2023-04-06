@@ -85,7 +85,7 @@ def differentiate(current_val, previous_val):
 
 class SerialReceiver(threading.Thread):
 
-    def __init__(self, lock, cv1, cv2):
+    def __init__(self, lock, sema1, sema2):
         super().__init__()
 
         self.ibp_val = ''
@@ -94,8 +94,8 @@ class SerialReceiver(threading.Thread):
         self.pump2 = ''
 
         self.lock = lock
-        self.cv1 = cv1
-        self.cv2 = cv2
+        self.sema1 = sema1
+        self.sema2 = sema2
 
     def run(self):
 
@@ -142,7 +142,7 @@ class SerialReceiver(threading.Thread):
                                 self.pump2 = pump_sig[6]
 
                                 with self.lock:
-                                    self.cv1.notify()
+                                    self.sema1.release()
 
                                 j_ref = 1
                                 break
@@ -153,7 +153,7 @@ class SerialReceiver(threading.Thread):
 
 
 class DataPreprocessor(threading.Thread):
-    def __init__(self, parent, lock, cv1, cv2):
+    def __init__(self, parent, lock, sema1, sema2):
         super().__init__()
 
         self.parent = parent
@@ -169,17 +169,18 @@ class DataPreprocessor(threading.Thread):
         self.sync_loop_n = 0
 
         self.lock = lock
-        self.cv1 = cv1
-        self.cv2 = cv2
+        self.sema1 = sema1
+        self.sema2 = sema2
 
     def run(self):
 
         print('Data Preprocessor start')
 
+        self.sema1.acquire()
+
         while 1:
 
             with self.lock:
-                self.cv1.wait()
 
                 ibp_val = self.parent.ibp_val
                 flow_val = self.parent.flow_val
@@ -242,7 +243,7 @@ class DataPreprocessor(threading.Thread):
                             print('')
 
                             if len(self.ibp_diff_arr) > 125:
-                                self.cv2.notify()
+                                self.sema2.release()
 
                             self.sync_loop_n += 1
 
@@ -257,14 +258,14 @@ save_outp_e = np.array([])
 
 
 class ApplyDNN(threading.Thread):
-    def __init__(self, parent, lock, cv2):
+    def __init__(self, parent, lock, sema2):
         super().__init__()
 
         self.parent = parent
         self.dnn_loop_n = 0
 
         self.lock = lock
-        self.cv2 = cv2
+        self.sema2 = sema2
 
         # self.lock = threading.Lock()
         # self.processing_signal = False
@@ -275,10 +276,11 @@ class ApplyDNN(threading.Thread):
 
         print("DNN apply start")
 
+        self.sema2.acquire()
+
         while 1:
 
             with self.lock:
-                self.cv2.wait()
 
                 ibp_diff_arr = self.parent.ibp_diff_arr
                 pump1_arr = self.parent.pump1_arr
@@ -387,12 +389,12 @@ class ApplyDNN(threading.Thread):
 class MyProgram:
     def __init__(self):
         lock = threading.Lock()
-        cv1 = threading.Condition(lock)
-        cv2 = threading.Condition(lock)
+        sema1 = threading.Semaphore(0)
+        sema2 = threading.Semaphore(0)
 
-        self.thread1 = SerialReceiver(lock, cv1, cv2)
-        self.thread2 = DataPreprocessor(self.thread1, lock, cv1, cv2)
-        self.thread3 = ApplyDNN(self.thread2, lock, cv2)
+        self.thread1 = SerialReceiver(lock, sema1, sema2)
+        self.thread2 = DataPreprocessor(self.thread1, lock, sema1, sema2)
+        self.thread3 = ApplyDNN(self.thread2, lock, sema2)
 
     def run(self):
         self.thread1.start()
