@@ -176,9 +176,10 @@ class DataPreprocessor(threading.Thread):
 
         print('Data Preprocessor start')
 
-        self.sema1.acquire()
-
         while 1:
+
+            self.sema1.acquire()
+            time.sleep(0.01)
 
             with self.lock:
 
@@ -214,33 +215,33 @@ class DataPreprocessor(threading.Thread):
                         self.ibp_diff_tmp_arr = np.append(self.ibp_diff_tmp_arr,
                                                           differentiate(self.ibp_filtered_arr[-1],
                                                                         self.ibp_filtered_arr[-2]))
-                        if len(self.ibp_diff_tmp_arr) > 500:
+                        if len(self.ibp_diff_tmp_arr) > 300:
                             self.ibp_diff_tmp_arr = np.array(self.ibp_diff_tmp_arr[1::])
                         # print("ibp_diff: ", *self.ibp_diff_arr)
 
                         if self.serial_loop_n % 4 == 0:
 
                             self.ibp_diff_arr = np.append(self.ibp_diff_arr, self.ibp_diff_tmp_arr[-1])
-                            if len(self.ibp_diff_arr) > 500:  # 데이터 하나씩 들어 가는지 확인
+                            if len(self.ibp_diff_arr) > 300:  # 데이터 하나씩 들어 가는지 확인
                                 self.ibp_diff_arr = np.array(self.ibp_diff_arr[1::])
-                            print("ibp_diff_arr: ", *self.ibp_diff_arr)
+                            # print("ibp_diff_arr: ", *self.ibp_diff_arr)
 
                             self.pump1_arr = np.append(self.pump1_arr, pump1)
-                            if len(self.pump1_arr) > 500:
+                            if len(self.pump1_arr) > 300:
                                 self.pump1_arr = np.array(self.pump1_arr[1::])
                             # print('pump1: ', *self.pump1_arr)
 
                             self.pump2_arr = np.append(self.pump2_arr, pump2)
-                            if len(self.pump2_arr) > 500:
+                            if len(self.pump2_arr) > 300:
                                 self.pump2_arr = np.array(self.pump2_arr[1::])
                             # print('pump2: ', *self.pump2_arr)
 
                             self.flow_arr = np.append(self.flow_arr, flow_val)
-                            if len(self.flow_arr) > 500:
+                            if len(self.flow_arr) > 300:
                                 self.flow_arr = np.array(self.flow_arr[1::])
 
-                            print("flow: ", *self.flow_arr)
-                            print('')
+                            # print("flow: ", *self.flow_arr)
+                            # print('')
 
                             if len(self.ibp_diff_arr) > 125:
                                 self.sema2.release()
@@ -276,9 +277,10 @@ class ApplyDNN(threading.Thread):
 
         print("DNN apply start")
 
-        self.sema2.acquire()
-
         while 1:
+
+            self.sema2.acquire()
+            time.sleep(0.01)
 
             with self.lock:
 
@@ -381,6 +383,13 @@ class ApplyDNN(threading.Thread):
                     print('')
 
                     self.dnn_loop_n += 1
+                    print(self.dnn_loop_n)
+
+                    if self.dnn_loop_n == 120:
+                        save_data = np.vstack((save_diff, save_sac1, save_sac2, save_outp_h, save_outp_e)).T
+                        np.savetxt(r'C:\Users\user\Desktop\ecmo_ai_apply_230413.csv',
+                                   save_data, fmt='%s',
+                                   delimiter=",")
 
                 else:
                     pass
@@ -399,11 +408,11 @@ class MyProgram:
     def run(self):
         self.thread1.start()
         self.thread2.start()
-        # self.thread3.start()
+        self.thread3.start()
 
         self.thread1.join()
         self.thread2.join()
-        # self.thread3.join()
+        self.thread3.join()
 
 
 my_program = MyProgram()
