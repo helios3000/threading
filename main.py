@@ -3,6 +3,7 @@ import numpy as np
 import time
 import serial
 import threading
+import scipy
 
 
 port = 'COM8'
@@ -72,6 +73,11 @@ def DNN(x, h1_w, h1_b, h2_w, h2_b, o_w, o_b):
 def moving_average(data, window_size=7):
     filtered_data = np.sum(data[-window_size:]) / window_size
     return filtered_data
+
+
+def moving_average_dnn(x, window_size):
+    weights = np.repeat(1.0, window_size)/window_size
+    return np.convolve(x, weights, 'valid')
 
 
 def derivation(current_val, previous_val):
@@ -177,7 +183,7 @@ class DataPreprocessor(threading.Thread):
         while 1:
 
             self.sema1.acquire()
-            time.sleep(0.02)
+            time.sleep(0.001)                                # thread1 & thread2, 0.001일 때 60bpm 67Hz
 
             with self.lock:
 
@@ -197,15 +203,31 @@ class DataPreprocessor(threading.Thread):
                     pump2 = 0
 
                 self.ibp_wave_arr = np.append(self.ibp_wave_arr, ibp_val)
-                if len(self.ibp_wave_arr) > 100:
+                if len(self.ibp_wave_arr) > 7:
                     self.ibp_wave_arr = np.array(self.ibp_wave_arr[1::])
                 # print("ibp: ", *self.ibp_wave_arr)
                 # print(time.time())
 
+                # synchronization
+                # self.pump1_arr = np.append(self.pump1_arr, pump1)
+                # if len(self.pump1_arr) > 200:
+                #     self.pump1_arr = np.array(self.pump1_arr[1::])
+                # # print('pump1: ', *self.pump1_arr)
+                #
+                # self.pump2_arr = np.append(self.pump2_arr, pump2)
+                # if len(self.pump2_arr) > 200:
+                #     self.pump2_arr = np.array(self.pump2_arr[1::])
+                # # print('pump2: ', *self.pump2_arr)
+                #
+                # self.flow_arr = np.append(self.flow_arr, flow_val)
+                # if len(self.flow_arr) > 200:
+                #     self.flow_arr = np.array(self.flow_arr[1::])
+
+                # original code before synchronization
                 if len(self.ibp_wave_arr) >= 7:
 
                     self.ibp_filtered_arr = np.append(self.ibp_filtered_arr, moving_average(self.ibp_wave_arr))
-                    if len(self.ibp_filtered_arr) > 100:
+                    if len(self.ibp_filtered_arr) > 10:
                         self.ibp_filtered_arr = np.array(self.ibp_filtered_arr[1::])
                     # print("ibp_filtered: ", *self.ibp_filtered_arr)
                     # print(time.time())
@@ -220,34 +242,33 @@ class DataPreprocessor(threading.Thread):
                         # print(time.time())
                         # print('')
 
-                        if self.serial_loop_n % 2 == 0:
+                        # 데이터 저장
+                        self.ibp_diff_arr = np.append(self.ibp_diff_arr, self.ibp_diff_tmp_arr[-1])
+                        if len(self.ibp_diff_arr) > 1000:  # 데이터 하나씩 들어 가는지 확인
+                            self.ibp_diff_arr = np.array(self.ibp_diff_arr[1::])
+                        # print("ibp_diff_arr: ", *self.ibp_diff_arr)
 
-                            self.ibp_diff_arr = np.append(self.ibp_diff_arr, self.ibp_diff_tmp_arr[-1])
-                            if len(self.ibp_diff_arr) > 200:  # 데이터 하나씩 들어 가는지 확인
-                                self.ibp_diff_arr = np.array(self.ibp_diff_arr[1::])
-                            # print("ibp_diff_arr: ", *self.ibp_diff_arr)
+                        self.pump1_arr = np.append(self.pump1_arr, pump1)
+                        if len(self.pump1_arr) > 1000:
+                            self.pump1_arr = np.array(self.pump1_arr[1::])
+                        # print('pump1: ', *self.pump1_arr)
 
-                            self.pump1_arr = np.append(self.pump1_arr, pump1)
-                            if len(self.pump1_arr) > 200:
-                                self.pump1_arr = np.array(self.pump1_arr[1::])
-                            # print('pump1: ', *self.pump1_arr)
+                        self.pump2_arr = np.append(self.pump2_arr, pump2)
+                        if len(self.pump2_arr) > 1000:
+                            self.pump2_arr = np.array(self.pump2_arr[1::])
+                        # print('pump2: ', *self.pump2_arr)
 
-                            self.pump2_arr = np.append(self.pump2_arr, pump2)
-                            if len(self.pump2_arr) > 200:
-                                self.pump2_arr = np.array(self.pump2_arr[1::])
-                            # print('pump2: ', *self.pump2_arr)
+                        self.flow_arr = np.append(self.flow_arr, flow_val)
+                        if len(self.flow_arr) > 1000:
+                            self.flow_arr = np.array(self.flow_arr[1::])
 
-                            self.flow_arr = np.append(self.flow_arr, flow_val)
-                            if len(self.flow_arr) > 200:
-                                self.flow_arr = np.array(self.flow_arr[1::])
+                        # print("flow: ", *self.flow_arr)
+                        # print('')
 
-                            # print("flow: ", *self.flow_arr)
-                            # print('')
+                        if len(self.ibp_diff_arr) > 127:
+                            self.sema2.release()
 
-                            if len(self.ibp_diff_arr) > 125:
-                                self.sema2.release()
-
-                            self.sync_loop_n += 1
+                        self.sync_loop_n += 1
 
                 self.serial_loop_n += 1
 
@@ -265,7 +286,7 @@ class ApplyDNN(threading.Thread):
         self.save_outp_h = np.array([])
         self.save_outp_e = np.array([])
 
-        self.cp_est_outp = ([])
+        self.cp_est_outp_tmp = ([])
 
         self.heart_decision = ([])
         self.ecmo_decision = ([])
@@ -279,14 +300,14 @@ class ApplyDNN(threading.Thread):
 
     def run(self):
 
-        global i
+        global i, j, k, bpm_1, bpm_2, bpm
 
         print("DNN apply start")
 
         while 1:
 
             self.sema2.acquire()
-            time.sleep(0.02)
+            time.sleep(0.001)
 
             with self.lock:
 
@@ -300,25 +321,31 @@ class ApplyDNN(threading.Thread):
 
                 if len(ibp_diff_arr) >= 125:
 
-                    ibp_tmp = np.array(ibp_diff_arr[-125:], dtype='float32')
-                    pump1_tmp = np.array(pump1_arr[-90:], dtype='float32')
-                    pump2_tmp = np.array(pump2_arr[-90:], dtype='float32')
+                    ibp_tmp = np.array(ibp_diff_arr[-127:], dtype='float32')
+                    pump1_tmp = np.array(pump1_arr[-102:-12], dtype='float32')
+                    pump2_tmp = np.array(pump2_arr[-102:-12], dtype='float32')
+
+                    # print('ibp_tmp', *ibp_tmp)
 
                     # print(11111, len(ibp_tmp), len(pump1_tmp), len(pump2_tmp))
 
                     # diff 필요한 범위만 가져온 뒤 표준화
-                    diff_inp = ibp_tmp
-                    save_diff_val = np.array(diff_inp)
+                    diff_inp_tmp = ibp_tmp
 
-                    diff_inp_min = np.min(diff_inp)
-                    diff_inp_max = np.max(diff_inp)
+                    diff_inp_min = np.min(diff_inp_tmp)
+                    diff_inp_max = np.max(diff_inp_tmp)
 
                     diff_principle = diff_inp_max - diff_inp_min
 
                     if diff_principle == 0:
-                        diff_inp = (diff_inp - diff_inp_min) / 0.1
+                        diff_inp_tmp = (diff_inp_tmp - diff_inp_min) / 0.1
                     else:
-                        diff_inp = (diff_inp - diff_inp_min) / (diff_inp_max - diff_inp_min)
+                        diff_inp_tmp = (diff_inp_tmp - diff_inp_min) / (diff_inp_max - diff_inp_min)
+
+                    diff_inp = moving_average_dnn(diff_inp_tmp, 3)
+                    save_diff_val = np.array(diff_inp)
+
+                    # print('diff_inp', *diff_inp)
 
                     # print(diff_inp)
 
@@ -337,9 +364,9 @@ class ApplyDNN(threading.Thread):
 
                     # print('diff_inp: ', *diff_inp)
                     # print('diff_inp: ', len(diff_inp))
-                    # print('sac1_inp: ', *sac1_inp)
+                    print('sac1_inp: ', *sac1_inp)
                     # print('sac1_inp: ', len(sac1_inp))
-                    # print('sac2_inp: ', *sac2_inp)
+                    print('sac2_inp: ', *sac2_inp)
                     # print('sac2_inp: ', len(sac2_inp))
 
                     # DNN 적용
@@ -392,34 +419,68 @@ class ApplyDNN(threading.Thread):
                     self.dnn_loop_n += 1
                     print(self.dnn_loop_n)
 
-                    if len(self.heart_decision) >= 49:
-                        self.sema3.release()
+                    # if len(self.heart_decision) >= 49:
+                    #     self.sema3.release()
 
-                    self.cp_est_outp.clear()
+                    # ECMO est를 통한 co/counter-pulsation 예측
+                    # self.cp_est_outp_tmp.clear()
+                    # cp_est_outp_tmp = self.save_outp_e.copy()
+                    #
+                    # for i in range(len(cp_est_outp_tmp)):
+                    #     if cp_est_outp_tmp[i] >= 3:
+                    #         cp_est_outp_tmp[i] = 1
+                    #         for j in range(-9, 10):
+                    #             if 0 <= i + j < len(cp_est_outp_tmp) and j != 0:
+                    #                 cp_est_outp_tmp[i + j] = 0
+                    #     else:
+                    #         cp_est_outp_tmp[i] = 0
+                    #
+                    # # Convert cp_est_outp_tmp to updated_outp_e_array.
+                    # updated_outp_e_array = np.array(cp_est_outp_tmp)
+                    #
+                    # # Check for 1s in updated_outp_e_array and update based on self.save_outp_h.
+                    # for i in range(len(updated_outp_e_array)):
+                    #     if updated_outp_e_array[i] == 1:
+                    #         found_1_in_outp_h = any(map(lambda x: x >= 1, self.save_outp_h[max(0, i - 5):i + 4]))
+                    #         if found_1_in_outp_h:
+                    #             updated_outp_e_array[i] = 3
+                    #         else:
+                    #             updated_outp_e_array[i] = 4
 
-                    cp_est_outp = self.save_outp_e.copy()
 
-                    for i in range(len(self.save_outp_e)):
-                        if self.save_outp_e[i] == 1:
+                    # Heart est를 통한 co/counter-pulsation 예측
+                    cp_est_outp_tmp = self.save_outp_h.copy()
+                    for i in range(len(cp_est_outp_tmp)):
 
-                            found_1_in_outp_h = any(self.save_outp_h[max(0, i - 3):i + 4] == 1)
+                        # if cp_est_outp_tmp[i] >= 5:
+                        #
+                        #     bpm_1 = i
+                        #
+                        #     if cp_est_outp_tmp[i+1] >= 5:
+                        #
+                        #         bpm_2 = i
+                        #
+                        # bpm = (bpm_2 - bpm_1)
 
-                            if found_1_in_outp_h:
-                                cp_est_outp[i] = 3
+                        if cp_est_outp_tmp[i] >= 5 and sum(cp_est_outp_tmp[-5:]) == 0:
+                            found_1_in_sac1 = any(map(lambda x: x >= 1, self.save_outp_h[max(0, i - 14):i + 13]))
+                            found_1_in_sac2 = any(map(lambda x: x >= 1, self.save_outp_h[max(0, i - 14):i + 13]))
+                            if found_1_in_sac1:
+                                cp_est_outp_tmp[i] = 1
                             else:
-                                cp_est_outp[i] = 4
-                        else:
-                            cp_est_outp[i] = self.save_outp_e[i]
+                                cp_est_outp_tmp[i] = 0
+                            if found_1_in_sac2:
+                                cp_est_outp_tmp[i] = 1
+                            else:
+                                cp_est_outp_tmp[i] = 0
 
-                    updated_outp_e_array = np.array(cp_est_outp)
-
-                    if self.dnn_loop_n == 600:
+                    if self.dnn_loop_n == 1000:
 
                         save_data = np.vstack((self.save_diff, self.save_sac1, self.save_sac2, self.save_outp_h,
-                                               self.save_outp_e, updated_outp_e_array)).T
+                                               self.save_outp_e, cp_est_outp_tmp)).T
 
-                        np.savetxt(r'C:\Users\user\Desktop\ecmo_ai_apply_230415.csv', save_data, fmt='%s',
-                                   delimiter=",")
+                        np.savetxt(r'C:\Users\user\Desktop\CP_est_data\ecmo_ai_apply_230508_sac.csv', save_data,
+                                   fmt='%s', delimiter=",")
 
                 else:
                     pass
